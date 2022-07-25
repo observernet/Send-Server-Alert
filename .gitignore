@@ -1,0 +1,11 @@
+# Ignore Directory
+bin/
+conf/
+log/
+shell/
+
+# Ignore File
+*.bak
+*.o
+*.lis
+Test*.c
