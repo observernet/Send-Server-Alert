@@ -1,0 +1,159 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+#include <stdarg.h>
+#include <errno.h>
+
+#include "ora_common.h"
+
+extern char		program_name[64];
+
+/**
+ * 데이타 베이스에 접속한다.
+ */
+void ora_connect(char* userid)
+{
+	struct sqlca sqlca;
+	
+	EXEC SQL CONNECT :userid;
+    
+    if ( sqlca.sqlcode != 0 )
+    {
+        printf("ora_connect: DB Connect Error [%d]\n", sqlca.sqlcode);
+        exit(EXIT_FAILURE);
+    }
+
+    EXEC ORACLE OPTION (ORACA=YES);
+    oraca.oradbgf  = 1;      /* enable debug operations         */
+    oraca.oracchf  = 1;      /* gather cursor cache statistics  */
+    oraca.orastxtf = 3;      /* always save the SQL statement   */
+}
+
+/**
+ * 데이타베이스 연결을 종료한다.
+ */
+void ora_disconnect()
+{
+	struct sqlca sqlca;
+	
+	EXEC SQL ROLLBACK WORK RELEASE;
+}
+
+/**
+ * 해당날짜가 거래일인지 체크한다.
+ */
+char is_work_date(int date, char* exchange_cd, sql_context ctx)
+{
+	char is_buzdate;
+	struct sqlca sqlca;
+
+	if ( ctx ) { EXEC SQL CONTEXT USE :ctx; }
+	
+	if ( exchange_cd )
+	{
+		EXEC SQL
+			SELECT IS_BUZDATE INTO :is_buzdate
+			FROM MBOOK.WORK_DATE
+			WHERE DATA_DATE = :date
+			  and EXCHANGE_CD = :exchange_cd;
+	}
+	else
+	{
+		EXEC SQL
+			SELECT MAX(IS_BUZDATE) INTO :is_buzdate
+			FROM MBOOK.WORK_DATE
+			WHERE DATA_DATE = :date;
+	}
+	
+	if ( _SQLNOTOK )
+	{
+		printf("거래일 여부를 체크할수 없습니다. [%d]\n", sqlca.sqlcode);
+		return (-1);
+	}
+	
+	return (is_buzdate);
+}
+
+/**
+ * 일정기간 전후의 영업일을 가져온다.
+ */
+int get_work_date(int tdate, int days, char* exchange_cd, sql_context ctx)
+{
+	int i, work_date;
+	char sql[BUFSIZ];
+	
+	struct sqlca sqlca;
+	if ( ctx ) { EXEC SQL CONTEXT USE :ctx; }
+	
+	if ( days > 0 )
+	{
+		sprintf(sql, "SELECT DATA_DATE FROM MBOOK.WORK_DATE "
+					 "WHERE DATA_DATE > %d "
+			  		 "  and EXCHANGE_CD = '%s' "
+			  		 "  and IS_BUZDATE = '1' "
+					 "ORDER BY DATA_DATE ",
+					 tdate, exchange_cd
+		);
+	}
+	else if ( days < 0 )
+	{
+		sprintf(sql, "SELECT DATA_DATE FROM MBOOK.WORK_DATE "
+					 "WHERE DATA_DATE < %d "
+			  		 "  and EXCHANGE_CD = '%s' "
+			  		 "  and IS_BUZDATE = '1' "
+					 "ORDER BY DATA_DATE desc ",
+					 tdate, exchange_cd
+		);
+	}
+	else return (tdate);
+	
+	/* 영업일을 가져온다. */
+	EXEC SQL PREPARE _GET_WORK_DATE_S FROM :sql;
+	EXEC SQL DECLARE _GET_WORK_DATE CURSOR FOR _GET_WORK_DATE_S;
+	
+	EXEC SQL OPEN _GET_WORK_DATE;
+	if ( _SQLOK )
+	{
+		for ( i = 0 ; i < abs(days) ; i++ )
+		{
+			EXEC SQL FETCH _GET_WORK_DATE INTO :work_date;
+			if ( _SQLNOTFOUND ) break;
+		}
+	}
+	else
+	{
+		printf("거래일을 가져올수 없습니다. [%d]\n", sqlca.sqlcode);
+		return (-1);
+	}
+	EXEC SQL CLOSE _GET_WORK_DATE;
+	
+	return (work_date);
+}
+
+/**
+ * 두 날짜 사이의 거래일수를 구한다.
+ */
+int get_work_days(int sdate, int edate, char* exchange_cd, sql_context ctx)
+{
+	int work_days;
+	struct sqlca sqlca;
+	
+	if ( ctx ) { EXEC SQL CONTEXT USE :ctx; }
+	
+	EXEC SQL
+		SELECT count(IS_BUZDATE) INTO :work_days
+		FROM MBOOK.WORK_DATE
+		WHERE DATA_DATE between :sdate and :edate
+		  and EXCHANGE_CD = :exchange_cd
+		  and IS_BUZDATE = '1';
+	
+	if ( _SQLNOTOK )
+	{
+		printf("거래일수를 가져올수 없습니다. [%d]\n", sqlca.sqlcode);
+		return (-1);
+	}
+	
+	return (work_days);
+}
