@@ -42,7 +42,7 @@ int main(int argc, char** argv)
 	while ( 1 )
     {
     	/* 소켓이벤트를 체크한다. (0.01초) */
-    	n = epoll_wait(epoll_fd, events, MAX_SERVER_USER, 10);
+    	n = epoll_wait(epoll_fd, events, MAX_SERVER_USER, 20);
 		if ( n < 0 )
 		{
 			if ( errno != EINTR ) Log("main: epoll_wait Error [%d]\n", errno);
@@ -200,7 +200,6 @@ int SendTelegram(char* mesg)
 		return (-1);
 	}
 	curl_easy_cleanup(curl);
-	curl_global_init(CURL_GLOBAL_ALL);	
 
 	if ( curlData.size <= 0 )
 	{
@@ -208,7 +207,7 @@ int SendTelegram(char* mesg)
 		return (-1);
 	}
 
-	printf("[%s]\n", curlData.pData);
+	Log("SendTelegram: Recv[%s]\n", curlData.pData);
 
     free(curlData.pData);
 	return (0);
